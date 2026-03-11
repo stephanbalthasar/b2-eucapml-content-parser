@@ -1,0 +1,76 @@
+name: Build booklet index (run attached script; write to artifacts/)
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/build-booklet-index.yml"
+      - "mentor/booklet/build_booklet_index.py"
+
+permissions:
+  contents: read
+
+jobs:
+  build-index:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout public repo (this one)
+        uses: actions/checkout@v4
+
+      - name: Checkout private content repo
+        uses: actions/checkout@v4
+        with:
+          repository: stephanbalthasar/EUCapML-Mentor-Content
+          token: ${{ secrets.REPO_XPAT }}   # existing secret in your public repo
+          path: private-content
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install python-docx
+
+      # Run your script UNCHANGED inside the private repo,
+      # so its default relative paths (assets/... and artifacts/...) resolve there.
+      - name: Run build_booklet_index.py
+        working-directory: private-content
+        shell: bash
+        run: |
+          set -euo pipefail
+          python ../mentor/booklet/build_booklet_index.py
+
+      # Commit only artifacts/booklet_index.json if it changed.
+      - name: Commit and push to private repo (only if artifacts changed)
+        working-directory: private-content
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Determine default branch of the private repo
+          DEFAULT_BRANCH=$(git remote show origin | sed -n '/HEAD branch/s/.*: //p')
+          if [ -z "$DEFAULT_BRANCH" ]; then DEFAULT_BRANCH="main"; fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add artifacts/booklet_index.json || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update artifacts/booklet_index.json [skip ci]"
+            git push origin HEAD:"$DEFAULT_BRANCH"
+          fi
+
+      # Optional: attach the JSON to the workflow run for quick inspection
+      - name: Upload workflow artifact (optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: booklet_index.json
+          path: private-content/artifacts/booklet_index.json
+          if-no-files-found: warn
