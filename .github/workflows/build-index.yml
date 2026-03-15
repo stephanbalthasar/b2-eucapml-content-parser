@@ -31,7 +31,7 @@ jobs:
           ref:        ${{ env.PRIVATE_REPO_REF }}
           # ⬇️ Reuse your existing fine‑grained PAT secret for this repo.
           #    If your secret name differs, change BOOKLET_REPO_PAT below.
-          token:      ${{ secrets.BOOKLET_REPO_PAT }}
+          token: ${{ secrets.REPO_XPAT }}
           path:       private-repo
           persist-credentials: true   # keep auth for later git push
 
