@@ -1,76 +1,76 @@
-name: Build booklet index (run attached script; write to artifacts/)
+name: Build booklet index (manual, fixed paths)
 
 on:
-  workflow_dispatch: {}
-  push:
-    branches: [ main ]
-    paths:
-      - ".github/workflows/build-booklet-index.yml"
-      - "mentor/booklet/build_booklet_index.py"
+  workflow_dispatch: {}   # manual trigger, no UI inputs
 
+# Principle of least privilege for THIS (public) repo's GITHUB_TOKEN.
+# We push to the private repo with your PAT secret (see below).
 permissions:
   contents: read
 
+env:
+  PRIVATE_REPO:       stephanbalthasar/b2-eucapml-content
+  PRIVATE_REPO_REF:   main
+  DOCX_PATH:          assets/booklet.docx
+  OUTPUT_DIR:         artifacts
+  PY_VERSION:         '3.11'
+  COMMIT_MESSAGE:     'Update booklet index (manual run)'
+
 jobs:
-  build-index:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout public repo (this one)
+      - name: Checkout public code repo (this repo)
         uses: actions/checkout@v4
 
-      - name: Checkout private content repo
+      - name: Checkout private content repo (for input + output)
         uses: actions/checkout@v4
         with:
-          repository: stephanbalthasar/EUCapML-Mentor-Content
-          token: ${{ secrets.REPO_XPAT }}   # existing secret in your public repo
-          path: private-content
+          repository: ${{ env.PRIVATE_REPO }}
+          ref:        ${{ env.PRIVATE_REPO_REF }}
+          # ⬇️ Reuse your existing fine‑grained PAT secret for this repo.
+          #    If your secret name differs, change BOOKLET_REPO_PAT below.
+          token:      ${{ secrets.BOOKLET_REPO_PAT }}
+          path:       private-repo
+          persist-credentials: true   # keep auth for later git push
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PY_VERSION }}
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install python-docx
-
-      # Run your script UNCHANGED inside the private repo,
-      # so its default relative paths (assets/... and artifacts/...) resolve there.
-      - name: Run build_booklet_index.py
-        working-directory: private-content
-        shell: bash
-        run: |
-          set -euo pipefail
-          python ../mentor/booklet/build_booklet_index.py
-
-      # Commit only artifacts/booklet_index.json if it changed.
-      - name: Commit and push to private repo (only if artifacts changed)
-        working-directory: private-content
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # Determine default branch of the private repo
-          DEFAULT_BRANCH=$(git remote show origin | sed -n '/HEAD branch/s/.*: //p')
-          if [ -z "$DEFAULT_BRANCH" ]; then DEFAULT_BRANCH="main"; fi
-
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add artifacts/booklet_index.json || true
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "Update artifacts/booklet_index.json [skip ci]"
-            git push origin HEAD:"$DEFAULT_BRANCH"
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; else
+            pip install python-docx==1.1.0 lxml==5.1.0
           fi
 
-      # Optional: attach the JSON to the workflow run for quick inspection
-      - name: Upload workflow artifact (optional)
-        uses: actions/upload-artifact@v4
-        with:
-          name: booklet_index.json
-          path: private-content/artifacts/booklet_index.json
-          if-no-files-found: warn
+      - name: Ensure output directory exists in private repo
+        run: |
+          mkdir -p "private-repo/${{ env.OUTPUT_DIR }}"
+
+      - name: Build JSONL (and citation map)
+        run: |
+          python build_booklet_index.py \
+            --input  "private-repo/${{ env.DOCX_PATH }}" \
+            --output "private-repo/${{ env.OUTPUT_DIR }}/booklet_index.jsonl" \
+            --emit-citation-map "private-repo/${{ env.OUTPUT_DIR }}/citation_map.json"
+
+      - name: Commit & push to private repo (only if there are changes)
+        working-directory: private-repo
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
+        run: |
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "${{ env.COMMIT_MESSAGE }}"
+            git push origin "${{ env.PRIVATE_REPO_REF }}"
+          fi
