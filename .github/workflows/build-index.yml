@@ -43,7 +43,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python ../mentor/booklet/build_booklet_index.py
+          python ../booklet/build_booklet_index.py
 
       # Commit only artifacts/booklet_index.json if it changed.
       - name: Commit and push to private repo (only if artifacts changed)
