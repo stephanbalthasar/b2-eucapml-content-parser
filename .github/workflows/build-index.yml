@@ -6,7 +6,7 @@ on:
     branches: [ main ]
     paths:
       - ".github/workflows/build-booklet-index.yml"
-      - "mentor/booklet/build_booklet_index.py"
+      - "booklet/build_booklet_index.py"
 
 permissions:
   contents: read
